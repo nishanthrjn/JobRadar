@@ -1,7 +1,6 @@
 import os
 import requests
-import json
-from datetime import datetime, timezone
+from datetime import datetime
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -14,8 +13,26 @@ JOOBLE_KEY     = os.getenv("JOOBLE_KEY")
 SHEET_ID       = os.getenv("GOOGLE_SHEET_ID")
 CREDS_FILE     = os.path.join(os.path.dirname(__file__), "credentials.json")
 
-KEYWORDS = ["C# developer", ".NET developer", "software engineer", "backend developer"]
+# English-specific keywords — ensures English-language job ads
+KEYWORDS = [
+    "C# developer", ".NET developer",
+    "software engineer", "backend developer",
+    "C# engineer", ".NET engineer"
+]
+
 ADZUNA_COUNTRIES = {"de": "Germany", "nl": "Netherlands", "be": "Belgium"}
+
+# Words that indicate a German-language job ad
+GERMAN_INDICATORS = [
+    "entwickler", "kenntnisse", "erfahrung", "wir suchen",
+    "stellenangebot", "bewerbung", "anforderungen", "aufgaben",
+    "qualifikation", "teamfähig", "eigenverantwortlich"
+]
+
+def is_english_job(title, description=""):
+    text = (title + " " + description).lower()
+    german_count = sum(1 for word in GERMAN_INDICATORS if word in text)
+    return german_count == 0
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 
@@ -30,7 +47,7 @@ def clear_and_write(jobs):
     service = get_sheet_service()
 
     headers = [["Title", "Company", "Location", "Country", "Source",
-                 "Posted", "Salary", "Match Keywords", "Apply URL"]]
+                 "Posted", "Salary", "Keywords", "Apply URL"]]
 
     rows = []
     for job in jobs:
@@ -70,9 +87,13 @@ def fetch_adzuna(keyword, country_code, country_name):
         r = requests.get(url, timeout=10)
         data = r.json()
         for item in data.get("results", []):
+            title = item.get("title", "")
+            desc  = item.get("description", "")
+            if not is_english_job(title, desc):
+                continue
             posted = item.get("created", "")[:10]
             jobs.append({
-                "title":    item.get("title", ""),
+                "title":    title,
                 "company":  item.get("company", {}).get("display_name", ""),
                 "location": item.get("location", {}).get("display_name", ""),
                 "country":  country_name,
@@ -92,57 +113,44 @@ def fetch_arbeitsagentur(keyword):
     jobs = []
     try:
         url = (
-            f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
+            "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
             f"?was={keyword.replace(' ', '+')}&angebotsart=1&size=50"
+            "&sprache=english"  # English language filter
         )
         headers = {"X-API-Key": "jobboerse-jobsuche"}
         r = requests.get(url, headers=headers, timeout=10)
         data = r.json()
         for item in data.get("stellenangebote", []):
+            title = item.get("titel", "")
+
+            # Fix duplicated company name
+            company_raw = item.get("arbeitgeber", "")
+            words = company_raw.split()
+            half  = len(words) // 2
+            if half > 0 and words[:half] == words[half:half*2]:
+                company = " ".join(words[:half])
+            else:
+                company = company_raw
+
+            # Use publication date not start date
+            posted = item.get("aktuelleVeroeffentlichungsdatum", "")[:10]
+
+            if not is_english_job(title):
+                continue
+
             jobs.append({
-                "title":    item.get("titel", ""),
-                "company":  item.get("arbeitgeber", ""),
+                "title":    title,
+                "company":  company,
                 "location": item.get("arbeitsort", {}).get("ort", ""),
                 "country":  "Germany",
                 "source":   "Arbeitsagentur",
-                "posted":   item.get("eintrittsdatum", "")[:10],
+                "posted":   posted,
                 "salary":   "",
                 "keywords": keyword,
-                "url":      f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{item.get('hashId','')}",
+                "url":      f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{item.get('refnr','')}",
             })
     except Exception as e:
         print(f"Arbeitsagentur error ({keyword}): {e}")
-    return jobs
-
-# ── EURES ─────────────────────────────────────────────────────────────────────
-
-def fetch_eures(keyword):
-    jobs = []
-    try:
-        url = "https://eures.europa.eu/api/jv-search"
-        payload = {
-            "keywords": keyword,
-            "lang": "en",
-            "country": ["DE", "NL", "BE", "LU"],
-            "resultsPerPage": 50,
-            "page": 1
-        }
-        r = requests.post(url, json=payload, timeout=10)
-        data = r.json()
-        for item in data.get("data", {}).get("items", []):
-            jobs.append({
-                "title":    item.get("title", ""),
-                "company":  item.get("employer", {}).get("name", ""),
-                "location": item.get("location", {}).get("city", ""),
-                "country":  item.get("location", {}).get("countryCode", ""),
-                "source":   "EURES",
-                "posted":   item.get("publicationDate", "")[:10],
-                "salary":   "",
-                "keywords": keyword,
-                "url":      f"https://eures.europa.eu/jobs/{item.get('id','')}",
-            })
-    except Exception as e:
-        print(f"EURES error ({keyword}): {e}")
     return jobs
 
 # ── Remotive ──────────────────────────────────────────────────────────────────
@@ -154,8 +162,9 @@ def fetch_remotive(keyword):
         r = requests.get(url, timeout=10)
         data = r.json()
         for item in data.get("jobs", []):
+            title = item.get("title", "")
             jobs.append({
-                "title":    item.get("title", ""),
+                "title":    title,
                 "company":  item.get("company_name", ""),
                 "location": item.get("candidate_required_location", "Worldwide"),
                 "country":  "Remote",
@@ -176,13 +185,17 @@ def fetch_jooble(keyword):
     locations = ["Germany", "Netherlands", "Belgium", "Luxembourg"]
     for location in locations:
         try:
-            url = f"https://jooble.org/api/{JOOBLE_KEY}"
+            url     = f"https://jooble.org/api/{JOOBLE_KEY}"
             payload = {"keywords": keyword, "location": location, "page": "1"}
-            r = requests.post(url, json=payload, timeout=10)
-            data = r.json()
+            r       = requests.post(url, json=payload, timeout=10)
+            data    = r.json()
             for item in data.get("jobs", []):
+                title = item.get("title", "")
+                desc  = item.get("snippet", "")
+                if not is_english_job(title, desc):
+                    continue
                 jobs.append({
-                    "title":    item.get("title", ""),
+                    "title":    title,
                     "company":  item.get("company", ""),
                     "location": item.get("location", ""),
                     "country":  location,
@@ -199,7 +212,7 @@ def fetch_jooble(keyword):
 # ── Deduplicate ───────────────────────────────────────────────────────────────
 
 def deduplicate(jobs):
-    seen = set()
+    seen   = set()
     unique = []
     for job in jobs:
         key = (job["title"].lower().strip(), job["company"].lower().strip())
@@ -208,7 +221,7 @@ def deduplicate(jobs):
             unique.append(job)
     return unique
 
-# ── Sort ──────────────────────────────────────────────────────────────────────
+# ── Sort by date ──────────────────────────────────────────────────────────────
 
 def sort_by_date(jobs):
     def parse_date(d):
@@ -226,23 +239,17 @@ def main():
 
     for keyword in KEYWORDS:
         print(f"Searching: {keyword}")
-
         for code, name in ADZUNA_COUNTRIES.items():
             all_jobs += fetch_adzuna(keyword, code, name)
-
         all_jobs += fetch_arbeitsagentur(keyword)
-        all_jobs += fetch_eures(keyword)
         all_jobs += fetch_remotive(keyword)
         all_jobs += fetch_jooble(keyword)
 
-    print(f"Total raw jobs: {len(all_jobs)}")
-
+    print(f"Total raw jobs:          {len(all_jobs)}")
     all_jobs = deduplicate(all_jobs)
-    print(f"After deduplication: {len(all_jobs)}")
-
+    print(f"After deduplication:     {len(all_jobs)}")
     all_jobs = sort_by_date(all_jobs)
-    print(f"Sorted by date. Writing to Google Sheet...")
-
+    print(f"Sorted. Writing sheet...")
     clear_and_write(all_jobs)
     print("Done.")
 
