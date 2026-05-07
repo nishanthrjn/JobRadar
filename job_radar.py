@@ -15,10 +15,35 @@ CREDS_FILE     = os.path.join(os.path.dirname(__file__), "credentials.json")
 
 # English-specific keywords — ensures English-language job ads
 KEYWORDS = [
-    "C# developer", ".NET developer",
-    "software engineer", "backend developer",
-    "C# engineer", ".NET engineer"
+    ".NET developer",
+    ".NET engineer", 
+    "software engineer dotnet",
+    "backend developer csharp",
+    "software developer NET"
 ]
+
+# Job titles that indicate irrelevant results
+IRRELEVANT_TITLES = [
+    "kfz", "mechatroniker", "fahrer", "driver", "nurse", "pflege",
+    "arzt", "doctor", "lehrer", "teacher", "koch", "chef cuisine",
+    "verkäufer", "sales assistant", "buchhalter", "accountant",
+    "elektriker", "electrician", "schlosser", "schweißer",
+    "führerschein", "lkw", "logistik driver"
+]
+
+GERMAN_WARNING_WORDS = [
+    "german", "deutsch", "sprachkenntnisse", "sprache",
+    "communication", "language", "fluent", "fließend"
+]
+
+def german_flag(title, description=""):
+    text = (title + " " + description).lower()
+    hits = [w for w in GERMAN_WARNING_WORDS if w in text]
+    return "⚠️ Check German req" if hits else "✅ Likely English OK"
+
+def is_relevant_job(title):
+    title_lower = title.lower()
+    return not any(word in title_lower for word in IRRELEVANT_TITLES)
 
 ADZUNA_COUNTRIES = {"de": "Germany", "nl": "Netherlands", "be": "Belgium"}
 
@@ -34,6 +59,13 @@ def is_english_job(title, description=""):
     german_count = sum(1 for word in GERMAN_INDICATORS if word in text)
     return german_count == 0
 
+
+    try:
+        posted = datetime.strptime(date_str, "%Y-%m-%d")
+        return posted >= datetime.now() - timedelta(days=days)
+    except:
+        return False
+
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 
 def get_sheet_service():
@@ -47,10 +79,17 @@ def clear_and_write(jobs):
     service = get_sheet_service()
 
     headers = [["Title", "Company", "Location", "Country", "Source",
-                 "Posted", "Salary", "Keywords", "Apply URL"]]
+                 "Posted", "Days Old", "German Req?", "Salary", "Keywords", "Apply URL"]]
 
+    from datetime import datetime
+    today = datetime.now()
     rows = []
     for job in jobs:
+        try:
+            posted = datetime.strptime(job.get("posted", ""), "%Y-%m-%d")
+            days_old = (today - posted).days
+        except:
+            days_old = ""
         rows.append([
             job.get("title", ""),
             job.get("company", ""),
@@ -58,6 +97,8 @@ def clear_and_write(jobs):
             job.get("country", ""),
             job.get("source", ""),
             job.get("posted", ""),
+            days_old,
+            job.get("flag", ""),
             job.get("salary", ""),
             job.get("keywords", ""),
             job.get("url", ""),
@@ -91,6 +132,8 @@ def fetch_adzuna(keyword, country_code, country_name):
             desc  = item.get("description", "")
             if not is_english_job(title, desc):
                 continue
+            if not is_relevant_job(title):
+                continue
             posted = item.get("created", "")[:10]
             jobs.append({
                 "title":    title,
@@ -99,6 +142,7 @@ def fetch_adzuna(keyword, country_code, country_name):
                 "country":  country_name,
                 "source":   "Adzuna",
                 "posted":   posted,
+                "flag":     german_flag(title, desc),
                 "salary":   f"{item.get('salary_min','')}-{item.get('salary_max','')}".strip("-"),
                 "keywords": keyword,
                 "url":      item.get("redirect_url", ""),
@@ -136,6 +180,8 @@ def fetch_arbeitsagentur(keyword):
             posted = item.get("aktuelleVeroeffentlichungsdatum", "")[:10]
 
             if not is_english_job(title):
+                continue
+            if not is_relevant_job(title):
                 continue
 
             jobs.append({
