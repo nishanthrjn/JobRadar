@@ -11,7 +11,7 @@
 ---
 
 ## What It Does
-
+```text
 Runs daily at 8am via GitHub Actions
 ↓
 Searches Adzuna API across DE, NL, BE
@@ -26,11 +26,11 @@ Writes to Google Sheet — 3 tabs:
 Sheet1     → All aggregated jobs (Adzuna)
 AllJobs    → All jobs from target company search
 DirectJobs → Jobs from Siemens, SAP, Bosch etc only
-
+```
 ---
 
 ## Job Sources
-
+```bash
 | Source | Coverage | Method |
 |--------|----------|--------|
 | Adzuna API | Germany, Netherlands, Belgium | Official free API |
@@ -38,7 +38,7 @@ DirectJobs → Jobs from Siemens, SAP, Bosch etc only
 | Jooble | Germany, Netherlands, Belgium, Luxembourg | Official free API |
 | Remotive | Remote worldwide | Official free API |
 | 30 Company career pages | Direct | Adzuna company filter |
-
+```
 ---
 
 ## Target Companies
@@ -77,7 +77,7 @@ pip install requests google-auth google-auth-oauthlib google-api-python-client p
 ```
 
 ### Configure
-
+```text
 Create a `.env` file (never commit this):
 
 ADZUNA_APP_ID=your_app_id
@@ -89,7 +89,7 @@ EMAIL_TO=your_gmail@gmail.com
 EMAIL_PASSWORD=your_gmail_app_password
 
 Place your Google service account `credentials.json` in the project root.
-
+```
 ### Run manually
 
 ```bash
@@ -101,7 +101,7 @@ python daily_jobs.py      # career page scraper + email digest
 ---
 
 ## Automation
-
+```text
 GitHub Actions runs all three scripts daily at 8am German time.
 Add these GitHub Secrets to your repo:
 
@@ -113,11 +113,11 @@ GOOGLE_CREDENTIALS   (full contents of credentials.json)
 EMAIL_FROM
 EMAIL_TO
 EMAIL_PASSWORD
-
+```
 ---
 
 ## Project Structure
-
+```text
 JobRadar/
 ├── job_radar.py          # Main aggregator — Adzuna, Arbeitsagentur, Jooble, Remotive
 ├── career_scraper.py     # Target company search — 30 companies
@@ -129,17 +129,13 @@ JobRadar/
 └── .github/
 └── workflows/
 └── daily.yml     # GitHub Actions — runs at 8am daily
-
+```
 ---
 
 ## Why This Exists
 
 Built as part of a job search toolkit for a senior .NET engineer
 targeting English-speaking roles in Germany and Benelux.
-Complements two other portfolio projects:
-
-- **AutoFlow** — Industrial IoT workflow automation engine (C# / .NET)
-- **DocuMind** — AI document intelligence platform (C# / Semantic Kernel)
 
 ---
 
