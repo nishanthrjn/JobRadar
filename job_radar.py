@@ -105,6 +105,18 @@ def clear_and_write(jobs):
         ])
 
     service.values().clear(spreadsheetId=SHEET_ID, range="Sheet1").execute()
+
+    if not rows:
+        service.values().update(
+            spreadsheetId=SHEET_ID,
+            range="Sheet1!A1",
+            valueInputOption="RAW",
+            body={"values": [["No new jobs found in the last 7 days."],
+                             ["Check back tomorrow — sheet updates daily at 8am."]]}
+        ).execute()
+        print("No jobs in last 7 days — wrote message to sheet")
+        return
+
     service.values().update(
         spreadsheetId=SHEET_ID,
         range="Sheet1!A1",
@@ -294,6 +306,10 @@ def main():
     print(f"Total raw jobs:          {len(all_jobs)}")
     all_jobs = deduplicate(all_jobs)
     print(f"After deduplication:     {len(all_jobs)}")
+    from datetime import timedelta
+    cutoff   = datetime.now() - timedelta(days=7)
+    all_jobs = [j for j in all_jobs if j.get("posted","") >= cutoff.strftime("%Y-%m-%d")]
+    print(f"After 7-day filter:      {len(all_jobs)}")
     all_jobs = sort_by_date(all_jobs)
     print(f"Sorted. Writing sheet...")
     clear_and_write(all_jobs)
